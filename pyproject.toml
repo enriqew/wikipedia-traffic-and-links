@@ -1,0 +1,9 @@
+[project]
+name = "wiki-hadoop"
+version = "0.1.0"
+description = "MapReduce over Wikipedia's pageviews and link graph"
+requires-python = ">=3.12"
+dependencies = ["duckdb>=1.1"]
+
+[tool.uv]
+package = false
