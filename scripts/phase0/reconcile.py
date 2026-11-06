@@ -82,25 +82,19 @@ def main() -> None:
 
     mapped: Counter = Counter()
     unmapped: Counter = Counter()
-    if user_csv.endswith(".tsv"):
-        # The DomainHourTotals job's output: domain<TAB>hour<TAB>views, already mapped.
-        con.execute(f"""create table usr as select * from read_csv('{Path(user_csv).as_posix()}', delim='\t',
-                        header=false, quote='', escape='',
-                        columns={{'domain': 'VARCHAR', 'hour': 'INT', 'views': 'BIGINT'}})""")
-    else:
-        with open(user_csv, encoding="utf-8") as f:
-            for r in csv.DictReader(f):
-                code = domain_code(r["wiki"], r["access"])
-                if code is None:
-                    unmapped[r["wiki"]] += int(r["views"])
-                else:
-                    mapped[(code, int(r["hour"]))] += int(r["views"])
-        tmp = Path(tempfile.gettempdir()) / f"reconcile-user-{day:%Y%m%d}.csv"
-        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-            f.write("domain,hour,views\n")
-            for (code, hour), n in mapped.items():
-                f.write(f"{code},{hour},{n}\n")
-        con.execute(f"create table usr as select * from read_csv('{tmp.as_posix()}', header=true)")
+    with open(user_csv, encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            code = domain_code(r["wiki"], r["access"])
+            if code is None:
+                unmapped[r["wiki"]] += int(r["views"])
+            else:
+                mapped[(code, int(r["hour"]))] += int(r["views"])
+    tmp = Path(tempfile.gettempdir()) / f"reconcile-user-{day:%Y%m%d}.csv"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        f.write("domain,hour,views\n")
+        for (code, hour), n in mapped.items():
+            f.write(f"{code},{hour},{n}\n")
+    con.execute(f"create table usr as select * from read_csv('{tmp.as_posix()}', header=true)")
 
     def row(sql: str) -> dict:
         cur = con.execute(sql)
