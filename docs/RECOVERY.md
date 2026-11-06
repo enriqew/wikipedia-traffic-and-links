@@ -36,9 +36,8 @@ replication 3 there is no other: the third copy already sits on each of the two 
 default the write then fails. The history file was left broken, the JobHistory server could not
 find the job, and the job's client, asking it for the final status, gave up with exit 1.
 
-The data was never at risk: the map tasks read their blocks from the two remaining replicas, and
-the single reducer wrote its output to a pipeline that did not include the dead node. What failed
-was bookkeeping, which is how a small cluster usually fails.
+The data came through: both outputs were complete and equal to the clean run's. What failed was
+bookkeeping, the history file, not the computation.
 
 ## The fix
 
@@ -71,8 +70,9 @@ What each failure cost:
   still read its block locally, from a node that held a replica.
 - **A DataNode alone.** No task failed: each reader that lost its DataNode moved to another replica
   of the same block mid-read.
-- **A NodeManager alone.** Four attempts were killed and launched again, because YARN no longer
-  had a record of the containers on that node once it declared the node lost.
+- **A NodeManager alone.** Four attempts were killed and launched again. Why YARN killed those four
+  rather than letting their JVMs finish without the NodeManager is not something these runs
+  establish.
 
 The killed attempts in the clean run and the rerun are speculative duplicates, launched for a slow
 map and killed when the original finished. The output does not depend on which attempt wins: Hadoop
