@@ -5,6 +5,18 @@ on:
   pull_request:
 
 jobs:
+  mapreduce:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+          cache: maven
+      # The jobs run in Hadoop's local job runner: no cluster, no data, no secrets.
+      - run: mvn -B -q -f mapreduce/pom.xml test
+
   publishable:
     runs-on: ubuntu-latest
     steps:
