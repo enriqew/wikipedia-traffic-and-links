@@ -1,118 +1,132 @@
 """Reconcile one day of pageviews across Wikimedia's three public datasets.
 
-1. The 24 hourly pageview dumps, summed per domain code and hour.
-2. The 24 hourly projectviews files, Wikimedia's own per-domain totals.
+1. The hourly pageview dumps, summed per domain code and hour.
+2. The hourly projectviews files, Wikimedia's own per-domain totals.
 3. The day's pageview_complete user file, summed per wiki, access method and hour
    (complete_totals.py), mapped onto domain codes.
 
-(1) against (2) asks whether the page-level dump adds up to the published totals. (3) against (1)
-asks whether the daily per-agent file holds the same user traffic as the hourly dump, and which
-access methods each domain code covers: whether mobile-app views sit in a desktop or a mobile
-domain, or in neither, is not documented, so every candidate mapping is measured.
+Two facts found in phase 0 make the three line up:
+
+- An hourly file is stamped with the END of the hour it covers: pageviews-20261028-120000 holds
+  hour 11 of pageview_complete (11:00 to 12:00 UTC). A day's 24 hours are therefore the files
+  stamped 01 to 23 of that day and 00 of the next.
+- In the hourly files, mobile-app views are counted under the mobile domain code (en.m), with
+  mobile-web.
 
 Usage: python scripts/phase0/reconcile.py 2026-10-28 <user totals csv>
 Prints the summary and writes reconcile-YYYYMMDD.json beside the data.
 """
 
+import csv
 import json
 import os
 import sys
-from datetime import date
+import tempfile
+from collections import Counter
+from datetime import date, timedelta
 from pathlib import Path
 
 import duckdb
 
-# Domain-code suffix for each project, as the hourly dumps write it: <lang>[.m][.<suffix>].
+# Domain-code suffix per project, as the hourly dumps write it: <lang>[.m][.<suffix>].
 SUFFIX = {"wikipedia": "", "wikibooks": "b", "wiktionary": "d", "wikinews": "n", "wikiquote": "q",
           "wikisource": "s", "wikiversity": "v", "wikivoyage": "voy"}
+# Projects without a language prefix: (desktop, mobile).
+# Wikifunctions has no code of its own in the hourly files: its views sit under the empty domain "".
+GLOBAL = {"wikidata": ("www.wd", "m.wd"), "mediawiki": ("www.w", "m.w"), "wikisource": ("www.s", "m.s"),
+          "wikifunctions": ('""', '""')}
+
+
+def domain_code(wiki: str, access: str) -> str | None:
+    mobile = access in ("mobile-web", "mobile-app")
+    if wiki in GLOBAL:
+        return GLOBAL[wiki][mobile]
+    lang, _, project = wiki.partition(".")
+    if project == "wikimedia":
+        return lang + (".m.m" if mobile else ".m")
+    if project in SUFFIX:
+        suffix = SUFFIX[project]
+        return lang + (".m" if mobile else "") + (f".{suffix}" if suffix else "")
+    return None
+
+
+def hourly_files(month_dir: Path, day: date, prefix: str, ext: str) -> list[tuple[Path, int]]:
+    """The 24 files covering the day's hours, with the hour each one holds."""
+    nxt = day + timedelta(days=1)
+    files = [(month_dir / f"{prefix}-{day:%Y%m%d}-{h:02d}0000{ext}", h - 1) for h in range(1, 24)]
+    next_dir = month_dir.parent.parent / f"{nxt:%Y}/{nxt:%Y-%m}"
+    files.append((next_dir / f"{prefix}-{nxt:%Y%m%d}-000000{ext}", 23))
+    return files
 
 
 def main() -> None:
     day = date.fromisoformat(sys.argv[1])
     user_csv = sys.argv[2]
     root = Path(os.environ.get("WH_DATA_DIR", "data"))
-    month_dir = (root / f"other/pageviews/{day:%Y}/{day:%Y-%m}").as_posix()
-    ymd = f"{day:%Y%m%d}"
+    month_dir = root / f"other/pageviews/{day:%Y}/{day:%Y-%m}"
     con = duckdb.connect()
-    opts = "delim=' ', header=false, quote='', escape='', filename=true"
+    cols = "columns={'domain': 'VARCHAR', 'title': 'VARCHAR', 'views': 'BIGINT', 'bytes': 'BIGINT'}"
+    opts = f"delim=' ', header=false, quote='', escape='', {cols}"
 
-    con.execute(f"""
-        create table dump as
-        select domain, cast(substr(regexp_extract(filename, '-(\\d{{2}})0000\\.gz$', 1), 1, 2) as int) as hour,
-               sum(views) as views, count(*) as rows
-        from read_csv('{month_dir}/pageviews-{ymd}-*.gz', {opts},
-                      columns={{'domain': 'VARCHAR', 'title': 'VARCHAR', 'views': 'BIGINT', 'bytes': 'BIGINT'}})
-        group by all""")
-    con.execute(f"""
-        create table proj as
-        select domain, cast(regexp_extract(filename, '-(\\d{{2}})0000$', 1) as int) as hour, sum(views) as views
-        from read_csv('{month_dir}/projectviews-{ymd}-*', {opts},
-                      columns={{'domain': 'VARCHAR', 'title': 'VARCHAR', 'views': 'BIGINT', 'bytes': 'BIGINT'}})
-        group by all""")
-    con.execute(f"create table cu as select * from read_csv('{user_csv}', header=true)")
+    def load(table: str, prefix: str, ext: str) -> None:
+        parts = []
+        for path, hour in hourly_files(month_dir, day, prefix, ext):
+            if not path.exists():
+                raise SystemExit(f"missing {path}")
+            parts.append(f"select domain, {hour} as hour, sum(views) as views "
+                         f"from read_csv('{path.as_posix()}', {opts}) group by all")
+        con.execute(f"create table {table} as " + " union all ".join(parts))
+
+    load("dump", "pageviews", ".gz")
+    load("proj", "projectviews", "")
+
+    mapped: Counter = Counter()
+    unmapped: Counter = Counter()
+    with open(user_csv, encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            code = domain_code(r["wiki"], r["access"])
+            if code is None:
+                unmapped[r["wiki"]] += int(r["views"])
+            else:
+                mapped[(code, int(r["hour"]))] += int(r["views"])
+    tmp = Path(tempfile.gettempdir()) / f"reconcile-user-{day:%Y%m%d}.csv"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        f.write("domain,hour,views\n")
+        for (code, hour), n in mapped.items():
+            f.write(f"{code},{hour},{n}\n")
+    con.execute(f"create table usr as select * from read_csv('{tmp.as_posix()}', header=true)")
 
     def row(sql: str) -> dict:
         cur = con.execute(sql)
         return dict(zip([d[0] for d in cur.description], cur.fetchone()))
 
-    out: dict = {"day": day.isoformat()}
-
-    # (1) against (2)
-    out["dump_vs_projectviews"] = row("""
-        select count(*) as domain_hours,
-               count(*) filter (where coalesce(d.views, -1) = coalesce(p.views, -1)) as equal,
-               sum(coalesce(d.views, 0)) as dump_views, sum(coalesce(p.views, 0)) as projectviews_views,
-               count(*) filter (where d.views is null) as only_in_projectviews,
-               count(*) filter (where p.views is null) as only_in_dump
-        from dump d full join proj p using (domain, hour)""")
-
-    # (3) mapped onto domain codes, one candidate mapping per treatment of mobile-app
-    cases = " ".join(f"when '{p}' then '{s}'" for p, s in SUFFIX.items())
-    con.execute(f"""
-        create table cu_mapped as
-        select split_part(wiki, '.', 1) as lang, case split_part(wiki, '.', 2) {cases} end as suffix,
-               access, hour, views
-        from cu where split_part(wiki, '.', 2) in ({", ".join(f"'{p}'" for p in SUFFIX)})""")
-    out["user_views"] = con.execute("select sum(views) from cu").fetchone()[0]
-    out["user_views_mapped"] = con.execute("select sum(views) from cu_mapped").fetchone()[0]
-    out["user_views_by_access"] = dict(con.execute(
-        "select access, sum(views) from cu group by 1 order by 2 desc").fetchall())
-
-    def domain(mobile: str) -> str:
-        return f"""lang || {mobile} || case when suffix = '' then '' else '.' || suffix end"""
-
-    mappings = {
-        "app_in_neither": f"""select case when access = 'desktop' then {domain("''")}
-                                          when access = 'mobile-web' then {domain("'.m'")} end as domain, hour, views
-                               from cu_mapped where access in ('desktop', 'mobile-web')""",
-        "app_in_desktop": f"""select case when access = 'mobile-web' then {domain("'.m'")} else {domain("''")} end
-                                     as domain, hour, views from cu_mapped""",
-        "app_in_mobile": f"""select case when access = 'desktop' then {domain("''")} else {domain("'.m'")} end
-                                    as domain, hour, views from cu_mapped""",
-    }
-    out["user_vs_dump"] = {}
-    for name, sql in mappings.items():
-        out["user_vs_dump"][name] = row(f"""
-            with m as (select domain, hour, sum(views) as views from ({sql}) group by all),
-                 d as (select domain, hour, views from dump
-                       where domain in (select distinct domain from m))
+    def compare(a: str, b: str) -> dict:
+        return row(f"""
             select count(*) as domain_hours,
-                   count(*) filter (where coalesce(m.views, -1) = coalesce(d.views, -1)) as equal,
-                   sum(coalesce(m.views, 0)) as user_views, sum(coalesce(d.views, 0)) as dump_views
-            from m full join d using (domain, hour)""")
+                   count(*) filter (where x.views = y.views) as equal,
+                   count(*) filter (where x.views <> y.views) as different,
+                   count(*) filter (where y.views is null) as only_first,
+                   count(*) filter (where x.views is null) as only_second,
+                   sum(coalesce(x.views, 0)) as first_views, sum(coalesce(y.views, 0)) as second_views,
+                   sum(coalesce(x.views, 0)) filter (where y.views is null) as only_first_views,
+                   sum(coalesce(y.views, 0)) filter (where x.views is null) as only_second_views
+            from {a} x full join {b} y using (domain, hour)""")
 
-    # The largest wikis, per hour: where any difference sits.
-    out["largest"] = con.execute("""
-        with m as (select case when access = 'mobile-web' then lang || '.m' else lang end as domain, access, hour,
-                          sum(views) as views
-                   from cu_mapped where suffix = '' and lang in ('en', 'de', 'ja', 'es', 'fr', 'ru')
-                   group by all)
-        select m.domain, m.access, sum(m.views) as user_views,
-               (select sum(views) from dump d where d.domain = m.domain) as dump_views
-        from m group by all order by 1, 2""").fetchall()
-
+    out = {
+        "day": day.isoformat(),
+        "dump_vs_projectviews": compare("dump", "proj"),
+        "user_vs_dump": compare("usr", "dump"),
+        "user_unmapped_views": sum(unmapped.values()),
+        "user_unmapped_wikis": dict(unmapped.most_common(10)),
+        "only_in_dump_largest": con.execute(
+            "select domain, sum(views) from dump anti join usr using (domain, hour) group by 1 order by 2 desc limit 10"
+        ).fetchall(),
+        "different_largest": con.execute(
+            "select domain, hour, u.views, d.views from usr u join dump d using (domain, hour) "
+            "where u.views <> d.views order by abs(u.views - d.views) desc limit 10").fetchall(),
+    }
     out = json.loads(json.dumps(out, default=int))
-    (root / f"reconcile-{ymd}.json").write_text(json.dumps(out, indent=1))
+    (root / f"reconcile-{day:%Y%m%d}.json").write_text(json.dumps(out, indent=1))
     print(json.dumps(out, indent=1))
 
 
