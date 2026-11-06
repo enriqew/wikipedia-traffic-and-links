@@ -1,0 +1,86 @@
+# A Hadoop 3.4 cluster on one machine: one NameNode, three DataNodes, one ResourceManager, three
+# NodeManagers and a JobHistory server. Three of each worker so that one can be killed mid-job.
+#
+#   docker compose up -d
+#   docker compose run --rm client hdfs dfsadmin -report
+#
+# The client mounts the built jobs read-only at /jobs and the downloaded data at /input
+# ($WH_DATA_DIR, set in the environment or in a local .env file).
+
+x-hadoop: &hadoop
+  image: apache/hadoop:3.4.3
+  env_file: cluster/hadoop.env
+  depends_on:
+    volumes:
+      condition: service_completed_successfully
+
+services:
+  # Named volumes start out owned by root; the daemons run as uid 1000.
+  volumes:
+    image: apache/hadoop:3.4.3
+    user: root
+    entrypoint: ["sh", "-c", "chown 1000:100 /v/*"]
+    volumes:
+      - namenode:/v/namenode
+      - datanode1:/v/datanode1
+      - datanode2:/v/datanode2
+      - datanode3:/v/datanode3
+
+  namenode:
+    <<: *hadoop
+    hostname: namenode
+    command: ["hdfs", "namenode"]
+    environment:
+      ENSURE_NAMENODE_DIR: /data/name
+    volumes: [namenode:/data]
+    ports: ["9870:9870"]
+
+  datanode1: &datanode
+    <<: *hadoop
+    hostname: datanode1
+    command: ["hdfs", "datanode"]
+    volumes: [datanode1:/data]
+  datanode2:
+    <<: *datanode
+    hostname: datanode2
+    volumes: [datanode2:/data]
+  datanode3:
+    <<: *datanode
+    hostname: datanode3
+    volumes: [datanode3:/data]
+
+  resourcemanager:
+    <<: *hadoop
+    hostname: resourcemanager
+    command: ["yarn", "resourcemanager"]
+    ports: ["8088:8088"]
+
+  nodemanager1: &nodemanager
+    <<: *hadoop
+    hostname: nodemanager1
+    command: ["yarn", "nodemanager"]
+  nodemanager2:
+    <<: *nodemanager
+    hostname: nodemanager2
+  nodemanager3:
+    <<: *nodemanager
+    hostname: nodemanager3
+
+  historyserver:
+    <<: *hadoop
+    hostname: historyserver
+    command: ["mapred", "historyserver"]
+    ports: ["19888:19888"]
+
+  client:
+    <<: *hadoop
+    profiles: [tools]
+    volumes:
+      - ./mapreduce/target:/jobs:ro
+      - ${WH_DATA_DIR:-./data}:/input:ro
+
+volumes:
+  namenode:
+  datanode1:
+  datanode2:
+  datanode3:
