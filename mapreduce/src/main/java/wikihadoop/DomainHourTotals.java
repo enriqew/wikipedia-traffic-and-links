@@ -1,6 +1,8 @@
 package wikihadoop;
 
 import java.io.IOException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.Path;
@@ -11,16 +13,19 @@ import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.TaskCounter;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.input.FileSplit;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.mapreduce.lib.reduce.LongSumReducer;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
 
 /**
- * Views per domain code and hour, summed from pageview_complete files.
+ * Views per day, domain code and hour, summed from pageview_complete files.
  *
  * <p>The output is what the reconciliation compares with the hourly dumps and projectviews:
- * one line per {@code domain<TAB>hour<TAB>views}, hour 0 to 23. Every input line ends as parsed
+ * one line per {@code date<TAB>domain<TAB>hour<TAB>views}, hour 0 to 23. The date is the day in
+ * the input file's name ({@code pageviews-YYYYMMDD-agent.bz2}), so any number of days can be read
+ * at once and stay apart; a file without a date in its name fails the task. Every input line ends as parsed
  * or as one rejection reason, counted in {@link PageviewLine.Fate}; the job fails unless those
  * counts sum to the map input records. Rows whose wiki has no domain code are parsed but counted
  * under {@link Extra#UNMAPPED_ROWS} and their views under {@link Extra#UNMAPPED_VIEWS}.
@@ -31,10 +36,27 @@ public final class DomainHourTotals extends Configured implements Tool {
 
   public enum Extra { UNMAPPED_ROWS, UNMAPPED_VIEWS }
 
+  private static final Pattern FILE_DATE = Pattern.compile("pageviews-(\\d{4})(\\d{2})(\\d{2})-");
+
+  /** The day a pageview_complete file covers, as YYYY-MM-DD, from its name. */
+  public static String fileDate(String name) throws IOException {
+    Matcher m = FILE_DATE.matcher(name);
+    if (!m.find()) {
+      throw new IOException("no date in input file name " + name);
+    }
+    return m.group(1) + "-" + m.group(2) + "-" + m.group(3);
+  }
+
   public static final class HourMapper extends Mapper<LongWritable, Text, Text, LongWritable> {
     private final PageviewLine row = new PageviewLine();
     private final Text key = new Text();
     private final LongWritable value = new LongWritable();
+    private String date;
+
+    @Override
+    protected void setup(Context context) throws IOException {
+      date = fileDate(((FileSplit) context.getInputSplit()).getPath().getName());
+    }
 
     @Override
     protected void map(LongWritable offset, Text line, Context context)
@@ -52,7 +74,7 @@ public final class DomainHourTotals extends Configured implements Tool {
       }
       for (int hour = 0; hour < 24; hour++) {
         if (row.hours[hour] > 0) {
-          key.set(domain + "\t" + hour);
+          key.set(date + "\t" + domain + "\t" + hour);
           value.set(row.hours[hour]);
           context.write(key, value);
         }
