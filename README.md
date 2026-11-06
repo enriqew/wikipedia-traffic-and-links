@@ -39,8 +39,10 @@ docker compose run --rm client bash -c '
 uv run python scripts/reconcile_month.py 2026-10 domain-hour.tsv --start 2026-10-28 --days 1
 ```
 
-The downloader keeps to one connection and sends a User-Agent with a contact, as the Wikimedia dumps
-server requires (it caps clients at three connections per IP).
+The downloader uses two connections by default and refuses more than three, the cap the Wikimedia
+dumps server sets per IP, and sends a User-Agent with a contact, as the server requires. Two
+connections together ran at about 4.5 MB/s, so the server's rate limit, not the connection count,
+sets the pace: a month of `user` and `automated` takes about four hours.
 
 ## Measured so far
 
