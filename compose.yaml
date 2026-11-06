@@ -6,8 +6,8 @@
 #   docker compose up -d
 #   docker compose run --rm client hdfs dfsadmin -report
 #
-# The client mounts the built jobs read-only at /jobs and the downloaded data at /input
-# ($WH_DATA_DIR, set in the environment or in a local .env file).
+# The client mounts the built jobs read-only at /jobs, the scripts at /scripts, and the downloaded
+# data at /input ($WH_DATA_DIR, set in the environment or in a local .env file).
 
 x-hadoop: &hadoop
   image: apache/hadoop:3.4.3
@@ -68,6 +68,7 @@ services:
     profiles: [tools]
     volumes:
       - ./mapreduce/target:/jobs:ro
+      - ./scripts:/scripts:ro
       - ${WH_DATA_DIR:-./data}:/input:ro
 
 volumes:
