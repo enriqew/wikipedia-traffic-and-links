@@ -40,7 +40,9 @@ services:
   worker1: &worker
     <<: *hadoop
     hostname: worker1
-    command: ["bash", "-c", "hdfs --daemon start datanode && exec yarn nodemanager"]
+    # Both daemons run in the background so that either can be killed alone; the container
+    # lives on, following their logs.
+    command: ["bash", "-c", "hdfs --daemon start datanode && yarn --daemon start nodemanager && exec tail -F -q /var/log/hadoop/hadoop-hadoop-datanode-$$(hostname).log /var/log/hadoop/hadoop-hadoop-nodemanager-$$(hostname).log"]
     volumes: [worker1:/data]
   worker2:
     <<: *worker
