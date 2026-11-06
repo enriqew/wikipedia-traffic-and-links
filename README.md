@@ -45,7 +45,8 @@ server requires (it caps clients at three connections per IP).
 On Wednesday 28 October 2026, `DomainHourTotals` on the cluster read 49,455,014 lines of the day's
 `user` file, gave every one a fate (all parsed), and produced 42,778 domain-hour totals, all equal to
 both of Wikimedia's hourly datasets: 372,596,151 views. The file sat in HDFS as five blocks at
-replication 3, and all seven map attempts ran data-local. The output's sha256 was the same before
+replication 3, read by one map task per block (bzip2 splits; gzip would not). All seven map attempts
+ran data-local; two of them were speculative duplicates, killed when the originals finished. The output's sha256 was the same before
 and after the cluster was rebuilt with a different worker layout.
 
 ## Data
