@@ -14,7 +14,9 @@ reconciliation between Wikimedia's three public pageview datasets, in `docs/PHAS
 |---|---|
 | `compose.yaml`, `cluster/hadoop.env` | The cluster: NameNode, ResourceManager, JobHistory server, three workers each running a DataNode and a NodeManager |
 | `mapreduce/` | The jobs, in Java 11 (the cluster's runtime), built with Maven inside Docker |
-| `scripts/phase0/` | Phase 0 in Python: download, per-day totals, the reconciliation |
+| `scripts/phase0/` | Phase 0 in Python: one day's download, per-day totals, the three-way reconciliation |
+| `scripts/download.py`, `scripts/ingest.py` | A month's download, and its copy into HDFS verified by sha256 |
+| `scripts/reconcile_month.py` | The job's user totals against Wikimedia's hourly projectviews, which must be equal |
 | `scripts/mvn.sh` | Maven in a container, so no local JDK is needed |
 | `scripts/audit_publishable.py` | Fails CI if a tracked file or commit message carries an address, a local path or a credential |
 
@@ -22,7 +24,7 @@ reconciliation between Wikimedia's three public pageview datasets, in `docs/PHAS
 
 ```bash
 export WH_DATA_DIR=/path/to/data          # downloads live here, outside the repository
-python scripts/phase0/download.py 2026-10-28
+python scripts/download.py 2026-10       # a month: pageview_complete and projectviews
 
 docker compose up -d                      # the cluster
 scripts/mvn.sh package                    # tests in the local job runner, then mapreduce/target/wiki-hadoop.jar
@@ -34,7 +36,7 @@ docker compose run --rm client bash -c '
   hadoop jar /jobs/wiki-hadoop.jar wikihadoop.DomainHourTotals $d /out/domain-hour/user-20261028
   hdfs dfs -cat /out/domain-hour/user-20261028/part-r-00000' > domain-hour.tsv
 
-uv run python scripts/phase0/reconcile.py 2026-10-28 domain-hour.tsv
+uv run python scripts/reconcile_month.py 2026-10 domain-hour.tsv --start 2026-10-28 --days 1
 ```
 
 The downloader keeps to one connection and sends a User-Agent with a contact, as the Wikimedia dumps
