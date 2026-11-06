@@ -1,5 +1,7 @@
-# A Hadoop 3.4 cluster on one machine: one NameNode, three DataNodes, one ResourceManager, three
-# NodeManagers and a JobHistory server. Three of each worker so that one can be killed mid-job.
+# A Hadoop 3.4 cluster on one machine: one NameNode, one ResourceManager, a JobHistory server, and
+# three workers. Each worker runs a DataNode and a NodeManager, as a real worker node does, so a
+# map task can read its block on the machine it runs on (data locality), and stopping a worker is
+# a node failure. A single daemon can be killed inside a worker for the narrower tests.
 #
 #   docker compose up -d
 #   docker compose run --rm client hdfs dfsadmin -report
@@ -22,9 +24,9 @@ services:
     entrypoint: ["sh", "-c", "chown 1000:100 /v/*"]
     volumes:
       - namenode:/v/namenode
-      - datanode1:/v/datanode1
-      - datanode2:/v/datanode2
-      - datanode3:/v/datanode3
+      - worker1:/v/worker1
+      - worker2:/v/worker2
+      - worker3:/v/worker3
 
   namenode:
     <<: *hadoop
@@ -35,36 +37,25 @@ services:
     volumes: [namenode:/data]
     ports: ["9870:9870"]
 
-  datanode1: &datanode
+  worker1: &worker
     <<: *hadoop
-    hostname: datanode1
-    command: ["hdfs", "datanode"]
-    volumes: [datanode1:/data]
-  datanode2:
-    <<: *datanode
-    hostname: datanode2
-    volumes: [datanode2:/data]
-  datanode3:
-    <<: *datanode
-    hostname: datanode3
-    volumes: [datanode3:/data]
+    hostname: worker1
+    command: ["bash", "-c", "hdfs --daemon start datanode && exec yarn nodemanager"]
+    volumes: [worker1:/data]
+  worker2:
+    <<: *worker
+    hostname: worker2
+    volumes: [worker2:/data]
+  worker3:
+    <<: *worker
+    hostname: worker3
+    volumes: [worker3:/data]
 
   resourcemanager:
     <<: *hadoop
     hostname: resourcemanager
     command: ["yarn", "resourcemanager"]
     ports: ["8088:8088"]
-
-  nodemanager1: &nodemanager
-    <<: *hadoop
-    hostname: nodemanager1
-    command: ["yarn", "nodemanager"]
-  nodemanager2:
-    <<: *nodemanager
-    hostname: nodemanager2
-  nodemanager3:
-    <<: *nodemanager
-    hostname: nodemanager3
 
   historyserver:
     <<: *hadoop
@@ -81,6 +72,6 @@ services:
 
 volumes:
   namenode:
-  datanode1:
-  datanode2:
-  datanode3:
+  worker1:
+  worker2:
+  worker3:
