@@ -1,49 +1,57 @@
 package wikihadoop;
 
 /**
- * This project's rule for a spike that does not look like people reading (plan section 12, approved
- * 2026-11-07). It is not Wikimedia's classification, and a flagged spike is not called a bot.
+ * This project's rule for a spike that does not look like people reading (plan section 12). It is
+ * not Wikimedia's classification, and a flagged spike is not called a bot.
  *
- * <p>A flat day is not the test, because wikis differ: on 28 October 2026 German Wikipedia's busiest
- * hour had 10.6 times its quietest hour's user views and English only 1.7. So the spike is compared
- * with its own wiki that day. It is flagged for its <b>shape</b> when the Pearson correlation of its
- * 24 hourly user views with its wiki's is below {@link #MIN_CORRELATION}; a spike or wiki whose 24
- * hours are all equal has no defined correlation and counts as zero. It is flagged for its
- * <b>access</b> when at least {@link #ONE_ACCESS} of its user views came through one access method
- * that has under half of the wiki's user views.
+ * <p>People read in peaks, whatever their time zone; a program fetches at an even rate. So a spike
+ * is flagged as <b>flat</b> when its 24 hourly user views vary less than half as much as its wiki's
+ * do that day, variation measured as the coefficient of variation (standard deviation over mean).
+ * Comparing with the wiki matters because wikis differ: on 28 October 2026 German Wikipedia's
+ * busiest hour had 10.6 times its quietest hour's user views and English only 1.7. A spike is
+ * flagged for its <b>access</b> when at least {@link #ONE_ACCESS} of its user views came through one
+ * access method that has under half of the wiki's user views.
+ *
+ * <p>(Changed 2026-11-07.) The first version flagged a spike whose hours did not correlate with its
+ * wiki's (Pearson below 0.3). On 1 to 10 October that flagged 2,540 of 8,264 spikes, most of them
+ * people: English Wikipedia's Asian Games pages read during the day in India, US news read in the
+ * American evening. Flatness flags readers in another time zone only if they read evenly around
+ * the clock.
  */
 public final class LooksAutomated {
 
-  public static final double MIN_CORRELATION = 0.3;
+  public static final double FLAT_FRACTION = 0.5;
   public static final double ONE_ACCESS = 0.95;
 
   private LooksAutomated() {}
 
-  public static double correlation(long[] a, long[] b) {
-    int n = a.length;
-    double ma = 0;
-    double mb = 0;
-    for (int i = 0; i < n; i++) {
-      ma += a[i];
-      mb += b[i];
+  /** Standard deviation over mean of the hourly counts; zero when there are none. */
+  public static double variation(long[] hours) {
+    double mean = 0;
+    for (long h : hours) {
+      mean += h;
     }
-    ma /= n;
-    mb /= n;
-    double cov = 0;
-    double va = 0;
-    double vb = 0;
-    for (int i = 0; i < n; i++) {
-      cov += (a[i] - ma) * (b[i] - mb);
-      va += (a[i] - ma) * (a[i] - ma);
-      vb += (b[i] - mb) * (b[i] - mb);
+    mean /= hours.length;
+    if (mean == 0) {
+      return 0;
     }
-    return va == 0 || vb == 0 ? 0 : cov / Math.sqrt(va * vb);
+    double var = 0;
+    for (long h : hours) {
+      var += (h - mean) * (h - mean);
+    }
+    return Math.sqrt(var / hours.length) / mean;
+  }
+
+  /** The spike's variation as a fraction of its wiki's; infinite if the wiki's hours are all equal. */
+  public static double flatness(long[] spike, long[] wiki) {
+    double w = variation(wiki);
+    return w == 0 ? Double.POSITIVE_INFINITY : variation(spike) / w;
   }
 
   /** The verdict for one spike: which tests flagged it, or {@code -} when none did. */
-  public static String flags(double correlation, double dominantShare, double wikiShareOfIt) {
-    boolean shape = correlation < MIN_CORRELATION;
+  public static String flags(double flatness, double dominantShare, double wikiShareOfIt) {
+    boolean flat = flatness < FLAT_FRACTION;
     boolean access = dominantShare >= ONE_ACCESS && wikiShareOfIt < 0.5;
-    return shape && access ? "shape+access" : shape ? "shape" : access ? "access" : "-";
+    return flat && access ? "flat+access" : flat ? "flat" : access ? "access" : "-";
   }
 }

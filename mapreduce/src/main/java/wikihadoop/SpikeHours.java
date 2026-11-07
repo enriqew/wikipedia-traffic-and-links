@@ -30,7 +30,7 @@ import org.apache.hadoop.util.ToolRunner;
  * {@link LooksAutomated}, with the wiki's hourly views from the DomainHourTotals output and its
  * access-method shares from pass one's totals, both also in the cache.
  *
- * <p>Output: each spike's line from pass two followed by {@code correlation dominant_access
+ * <p>Output: each spike's line from pass two followed by {@code flatness dominant_access
  * dominant_share wiki_share_of_it flags hourly}, the last being 24 comma-separated counts. A spike
  * whose hours do not sum to the views pass two gave it is counted in {@link Counts#HOURS_MISMATCH},
  * which the run requires to be zero.
@@ -150,8 +150,8 @@ public final class SpikeHours extends Configured implements Tool {
       long wikiDominant = accessTotals.getOrDefault(date + "\t" + wiki + "\t" + dominant, 0L);
       double share = (double) dominantViews / total;
       double wikiShare = wikiAll == 0 ? 0 : (double) wikiDominant / wikiAll;
-      double r = LooksAutomated.correlation(hourly, wikiTotals.hourly(wiki, date));
-      String flags = LooksAutomated.flags(r, share, wikiShare);
+      double flatness = LooksAutomated.flatness(hourly, wikiTotals.hourly(wiki, date));
+      String flags = LooksAutomated.flags(flatness, share, wikiShare);
       context.getCounter(Counts.SPIKES).increment(1);
       if (!flags.equals("-")) {
         context.getCounter(Counts.FLAGGED).increment(1);
@@ -161,7 +161,7 @@ public final class SpikeHours extends Configured implements Tool {
         csv.append(h == 0 ? "" : ",").append(hourly[h]);
       }
       line.set(spike + "\t" + String.format(java.util.Locale.ROOT, "%.4f\t%s\t%.4f\t%.4f\t%s\t%s",
-          r, dominant, share, wikiShare, flags, csv));
+          flatness, dominant, share, wikiShare, flags, csv));
       context.write(line, NullWritable.get());
     }
   }

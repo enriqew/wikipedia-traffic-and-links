@@ -79,9 +79,11 @@ class SpikeHoursTest {
         out.toString(), in.toString());
     assertTrue(job.waitForCompletion(false));
 
+    // Human: awake the same hours as its wiki but with no night-time views at all, so it varies a
+    // little more than the wiki (flatness 1.19). Scraper: the same views every hour, flatness 0.
     assertEquals(List.of(
-        human + "\t1.0000\tdesktop\t0.5000\t0.3500\t-\t" + csv(100, 8, 22),
-        scraper + "\t0.0000\tdesktop\t1.0000\t0.3500\tshape+access\t" + csv(100, 0, 24)),
+        human + "\t1.1905\tdesktop\t0.5000\t0.3500\t-\t" + csv(100, 8, 22),
+        scraper + "\t0.0000\tdesktop\t1.0000\t0.3500\tflat+access\t" + csv(100, 0, 24)),
         Files.readAllLines(out.resolve("part-r-00000")));
 
     Counters c = job.getCounters();
