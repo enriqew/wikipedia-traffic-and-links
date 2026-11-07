@@ -103,11 +103,22 @@ def main() -> int:
 
     # 4. top spikes
     top = read(out / "top-spikes.part.tsv")
-    ranked = {line.split("\t")[0] for line in open(Path(__file__).resolve().parent.parent
-                                                   / "mapreduce/src/main/resources/wikis.tsv", encoding="utf-8")}
+    ranked = {}  # wiki -> (main page, non-article namespace names), as Wikis.ranked reads them
+    for line in open(Path(__file__).resolve().parent.parent / "mapreduce/src/main/resources/wikis.tsv",
+                     encoding="utf-8"):
+        wiki, main_page, prefixes = line.rstrip("\n").split("\t")
+        ranked[wiki] = (main_page, set(prefixes.split("|")))
+
+    def content_page(wiki: str, title: str) -> bool:
+        if wiki not in ranked or title in ("-", ranked[wiki][0]):
+            return False
+        colon = title.find(":")
+        return colon <= 0 or title[:colon].lower() not in ranked[wiki][1]
+
     per_key = collections.Counter((f[1], f[3]) for f in top)
-    check("top spikes", all(f[1] in ranked for f in top) and max(per_key.values(), default=0) <= 10,
-          f"{len(top):,} spikes over {len(per_key):,} wiki-days")
+    not_content = sum(1 for f in top if not content_page(f[1], f[2]))
+    check("top spikes", not_content == 0 and max(per_key.values(), default=0) <= 10,
+          f"{len(top):,} spikes over {len(per_key):,} wiki-days, {not_content:,} not a content page")
 
     flagged = collections.Counter(f[14] for f in read(out / "spike-hours.part.tsv"))
     print(f"info  looks-automated flags across all spikes: {dict(flagged)}")
