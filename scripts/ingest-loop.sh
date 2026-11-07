@@ -16,7 +16,7 @@ until grep -q '^done:' "$data/download-$month.log" 2>/dev/null; do
   docker compose run --rm -T client python3 /scripts/ingest.py "$month" 2>/dev/null | grep -E '^(ok|MISMATCH) ' >> "$log"
   sleep 600
 done
-docker compose run --rm -T client python3 /scripts/ingest.py "$month" > "$data/ingest-$month.report.txt" 2>/dev/null
+docker compose run --rm -T client python3 /scripts/ingest.py "$month" > "$data/ingest-$month.report.txt" 2>&1
 status=$?
 grep -E '^(ok|MISMATCH) ' "$data/ingest-$month.report.txt" >> "$log"
 echo "final pass exit $status: $(grep -c '^ok ' "$log") ok, $(grep -c '^MISMATCH ' "$log") mismatched"
