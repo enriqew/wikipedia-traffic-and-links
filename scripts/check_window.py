@@ -6,6 +6,7 @@
    jobs count the same rows by different routes (in-mapper combining against a shuffle).
 3. Every spike from pass two came out of pass three with its hours, and no other did.
 4. Every top spike is a content page of a ranked wiki, at most ten per wiki and day.
+5. Every spike's peak-hour share and burst mark agree with its 24 hourly counts.
 
 Usage: python scripts/check_window.py <run name> <first day YYYY-MM-DD> <days>
 Exits non-zero if a check fails.
@@ -120,8 +121,21 @@ def main() -> int:
     check("top spikes", not_content == 0 and max(per_key.values(), default=0) <= 10,
           f"{len(top):,} spikes over {len(per_key):,} wiki-days, {not_content:,} not a content page")
 
-    flagged = collections.Counter(f[14] for f in read(out / "spike-hours.part.tsv"))
+    # 5. peak-hour share and burst mark (Burst.SHARE in the jobs)
+    spike_rows = read(out / "spike-hours.part.tsv")
+    wrong = 0
+    for f in spike_rows:
+        hourly = [int(v) for v in f[17].split(",")]
+        share = max(hourly) / sum(hourly) if sum(hourly) else 0.0
+        # Java's %.4f and Python's can round a tie differently, so the share gets half a digit.
+        if abs(float(f[15]) - share) > 0.00005 + 1e-12 or f[16] != ("burst" if share >= 0.9 else "-"):
+            wrong += 1
+    bursts = [f for f in spike_rows if f[16] == "burst"]
+    check("bursts", wrong == 0, f"{len(bursts):,} bursts, {wrong:,} spikes whose mark disagrees with their hours")
+
+    flagged = collections.Counter(f[14] for f in spike_rows)
     print(f"info  looks-automated flags across all spikes: {dict(flagged)}")
+    print(f"info  bursts by looks-automated flag: {dict(collections.Counter(f[14] for f in bursts))}")
     return 1 if failures else 0
 
 
