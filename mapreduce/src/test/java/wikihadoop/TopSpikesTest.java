@@ -19,7 +19,7 @@ class TopSpikesTest {
 
   private static String spike(String wiki, String title, String date, double excess) {
     return wiki + "\t" + title + "\t" + date + "\t" + (long) (excess + 10) + "\t10.0\t" + excess
-        + "\t0\t0\t0\t0\t0.9000\tdesktop\t0.6000\t0.3500\t-\t0";
+        + "\t0\t0\t0\t0\t0.9000\tdesktop\t0.6000\t0.3500\t-\t0.2000\t-\t0";
   }
 
   @Test

@@ -31,7 +31,9 @@ import org.apache.hadoop.util.ToolRunner;
  * access-method shares from pass one's totals, both also in the cache.
  *
  * <p>Output: each spike's line from pass two followed by {@code flatness dominant_access
- * dominant_share wiki_share_of_it flags hourly}, the last being 24 comma-separated counts. A spike
+ * dominant_share wiki_share_of_it flags peak_share burst hourly}. {@code flags} is
+ * {@link LooksAutomated}'s verdict; {@code burst} is {@code burst} or {@code -} by {@link Burst},
+ * which is not part of that verdict; {@code hourly} is 24 comma-separated counts. A spike
  * whose hours do not sum to the views pass two gave it is counted in {@link Counts#HOURS_MISMATCH},
  * which the run requires to be zero.
  *
@@ -40,7 +42,7 @@ import org.apache.hadoop.util.ToolRunner;
  */
 public final class SpikeHours extends Configured implements Tool {
 
-  public enum Counts { SPIKE_ROWS, SPIKES, FLAGGED, HOURS_MISMATCH }
+  public enum Counts { SPIKE_ROWS, SPIKES, FLAGGED, BURSTS, HOURS_MISMATCH }
 
   static final String SPIKES = "spikes";
   static final String TOTALS = "totals";
@@ -152,16 +154,22 @@ public final class SpikeHours extends Configured implements Tool {
       double wikiShare = wikiAll == 0 ? 0 : (double) wikiDominant / wikiAll;
       double flatness = LooksAutomated.flatness(hourly, wikiTotals.hourly(wiki, date));
       String flags = LooksAutomated.flags(flatness, share, wikiShare);
+      double peakShare = Burst.peakShare(hourly);
+      boolean burst = Burst.is(peakShare);
       context.getCounter(Counts.SPIKES).increment(1);
       if (!flags.equals("-")) {
         context.getCounter(Counts.FLAGGED).increment(1);
+      }
+      if (burst) {
+        context.getCounter(Counts.BURSTS).increment(1);
       }
       StringBuilder csv = new StringBuilder();
       for (int h = 0; h < 24; h++) {
         csv.append(h == 0 ? "" : ",").append(hourly[h]);
       }
-      line.set(spike + "\t" + String.format(java.util.Locale.ROOT, "%.4f\t%s\t%.4f\t%.4f\t%s\t%s",
-          flatness, dominant, share, wikiShare, flags, csv));
+      line.set(spike + "\t" + String.format(java.util.Locale.ROOT,
+          "%.4f\t%s\t%.4f\t%.4f\t%s\t%.4f\t%s\t%s",
+          flatness, dominant, share, wikiShare, flags, peakShare, burst ? "burst" : "-", csv));
       context.write(line, NullWritable.get());
     }
   }

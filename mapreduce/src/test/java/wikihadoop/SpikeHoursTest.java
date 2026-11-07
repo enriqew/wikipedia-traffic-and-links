@@ -36,7 +36,7 @@ class SpikeHoursTest {
   }
 
   @Test
-  void joinsEachSpikeWithItsHoursAndFlagsTheOneThatDoesNotLookRead() throws Exception {
+  void joinsEachSpikeWithItsHoursFlagsTheOneThatDoesNotLookReadAndMarksTheBurst() throws Exception {
     Configuration conf = Jobs.localConf();
     Window.set(conf, "2026-10-05", 1);
 
@@ -63,7 +63,9 @@ class SpikeHoursTest {
     Files.createDirectories(articleDays);
     String human = "en.wikipedia\tHuman\t2026-10-05\t1400\t10.0\t1390.0\t0\t700\t700\t0";
     String scraper = "en.wikipedia\tScraper\t2026-10-05\t2400\t5.0\t2395.0\t9\t2400\t0\t0";
-    Files.write(articleDays.resolve("spikes-r-00000"), List.of(human, scraper), StandardCharsets.UTF_8);
+    String flash = "en.wikipedia\tFlash\t2026-10-05\t1000\t2.0\t998.0\t0\t0\t1000\t0";
+    Files.write(articleDays.resolve("spikes-r-00000"), List.of(human, scraper, flash),
+        StandardCharsets.UTF_8);
 
     Path in = dir.resolve("in");
     Files.createDirectories(in);
@@ -71,6 +73,7 @@ class SpikeHoursTest {
         "en.wikipedia Human 1 desktop 700 " + hours(50, 8, 22),
         "en.wikipedia Human 1 mobile-web 700 " + hours(50, 8, 22),
         "en.wikipedia Scraper 2 desktop 2400 " + hours(100, 0, 24),  // flat, and all desktop
+        "en.wikipedia Flash 4 mobile-web 1000 " + hours(1000, 17, 18),  // the whole day at 17:00
         "en.wikipedia Other 3 desktop 5 A5",
         ""));
 
@@ -81,15 +84,19 @@ class SpikeHoursTest {
 
     // Human: awake the same hours as its wiki but with no night-time views at all, so it varies a
     // little more than the wiki (flatness 1.19). Scraper: the same views every hour, flatness 0.
+    // Flash: the whole day in one hour, from phones, which hold most of the wiki's views. A burst,
+    // and neither flat nor one rare access method, so not flagged.
     assertEquals(List.of(
-        human + "\t1.1905\tdesktop\t0.5000\t0.3500\t-\t" + csv(100, 8, 22),
-        scraper + "\t0.0000\tdesktop\t1.0000\t0.3500\tflat+access\t" + csv(100, 0, 24)),
+        flash + "\t6.7554\tmobile-web\t1.0000\t0.6000\t-\t1.0000\tburst\t" + csv(1000, 17, 18),
+        human + "\t1.1905\tdesktop\t0.5000\t0.3500\t-\t0.0714\t-\t" + csv(100, 8, 22),
+        scraper + "\t0.0000\tdesktop\t1.0000\t0.3500\tflat+access\t0.0417\t-\t" + csv(100, 0, 24)),
         Files.readAllLines(out.resolve("part-r-00000")));
 
     Counters c = job.getCounters();
-    assertEquals(3, c.findCounter(SpikeHours.Counts.SPIKE_ROWS).getValue());
-    assertEquals(2, c.findCounter(SpikeHours.Counts.SPIKES).getValue());
+    assertEquals(4, c.findCounter(SpikeHours.Counts.SPIKE_ROWS).getValue());
+    assertEquals(3, c.findCounter(SpikeHours.Counts.SPIKES).getValue());
     assertEquals(1, c.findCounter(SpikeHours.Counts.FLAGGED).getValue());
+    assertEquals(1, c.findCounter(SpikeHours.Counts.BURSTS).getValue());
     assertEquals(0, c.findCounter(SpikeHours.Counts.HOURS_MISMATCH).getValue());
     assertEquals(0, SpikeCandidates.unaccounted(c));
   }
