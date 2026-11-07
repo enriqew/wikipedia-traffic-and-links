@@ -10,8 +10,8 @@ import java.util.List;
 import java.util.zip.GZIPOutputStream;
 
 /**
- * A tiny wiki whose fifteen links meet each {@link LinkFate} once, except EDGE_DIRECT twice, written
- * as the four dump tables the link-graph jobs read.
+ * A tiny wiki whose fifteen links meet every {@link LinkFate} but REDIRECT_WITHOUT_ROW, each once
+ * except EDGE_DIRECT twice, written as the four dump tables the link-graph jobs read.
  *
  * <pre>
  * pages: 1 Alpha, 2 Beta, 3 Gamma, 11 Lonely (articles); 4 B -&gt; Beta, 6 G3 -&gt; Gamma,
