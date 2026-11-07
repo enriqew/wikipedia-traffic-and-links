@@ -1,8 +1,6 @@
 package wikihadoop;
 
 import java.io.IOException;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.Path;
@@ -36,15 +34,9 @@ public final class DomainHourTotals extends Configured implements Tool {
 
   public enum Extra { UNMAPPED_ROWS, UNMAPPED_VIEWS }
 
-  private static final Pattern FILE_DATE = Pattern.compile("pageviews-(\\d{4})(\\d{2})(\\d{2})-");
-
   /** The day a pageview_complete file covers, as YYYY-MM-DD, from its name. */
   public static String fileDate(String name) throws IOException {
-    Matcher m = FILE_DATE.matcher(name);
-    if (!m.find()) {
-      throw new IOException("no date in input file name " + name);
-    }
-    return m.group(1) + "-" + m.group(2) + "-" + m.group(3);
+    return InputFiles.date(name);
   }
 
   public static final class HourMapper extends Mapper<LongWritable, Text, Text, LongWritable> {
