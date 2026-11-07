@@ -48,6 +48,9 @@ class ArticleDaysTest {
     Files.createDirectories(candidates);
     Files.write(candidates.resolve("candidates-r-00000"),
         List.of("en.wikipedia\tSteady\t7", "en.wikipedia\tStory\t1"), StandardCharsets.UTF_8);
+    // Pass one writes its totals beside the candidates; they must not be read as candidates.
+    Files.write(candidates.resolve("totals-r-00000"),
+        List.of("2026-10-05\ten.wikipedia\tuser\tdesktop\t5000"), StandardCharsets.UTF_8);
 
     Path in = dir.resolve("in");
     Files.createDirectories(in);

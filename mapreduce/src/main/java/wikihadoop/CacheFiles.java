@@ -21,26 +21,33 @@ import org.apache.hadoop.mapreduce.JobContext;
 /**
  * Small side inputs shipped to every task through the distributed cache.
  *
- * <p>{@link #add} registers every {@code part-*} file of a job output directory under a name, as
- * {@code name.0}, {@code name.1}, and so on. On a cluster YARN copies each one to the task's node
- * and links it into the task's working directory under that name, so {@link #lines} reads a local
- * file. In the local job runner, where no link may exist, it reads the file where it lies.
+ * <p>{@link #add} registers the {@code part-*} files of a job output directory under a name, as
+ * {@code name.0}, {@code name.1}, and so on; {@link #addNamed} the files of one named output. On a
+ * cluster YARN copies each one to the task's node and links it into the task's working directory
+ * under that name, so {@link #lines} reads a local file. In the local job runner, where no link may
+ * exist, it reads the file where it lies.
  */
 public final class CacheFiles {
 
   private CacheFiles() {}
 
+  /** Registers every {@code part-*} file of a job output directory. */
   public static void add(Job job, String name, String outputDir) throws IOException {
+    addNamed(job, name, outputDir, "part-");
+  }
+
+  /** Registers the files of a job output directory whose names start with {@code prefix}. */
+  public static void addNamed(Job job, String name, String outputDir, String prefix) throws IOException {
     Path dir = new Path(outputDir);
     FileSystem fs = dir.getFileSystem(job.getConfiguration());
     List<FileStatus> parts = new ArrayList<>();
     for (FileStatus s : fs.listStatus(dir)) {
-      if (s.getPath().getName().startsWith("part-") || s.getPath().getName().contains("-r-")) {
+      if (s.getPath().getName().startsWith(prefix)) {
         parts.add(s);
       }
     }
     if (parts.isEmpty()) {
-      throw new IOException("no part files in " + outputDir);
+      throw new IOException("no " + prefix + "* files in " + outputDir);
     }
     parts.sort((a, b) -> a.getPath().getName().compareTo(b.getPath().getName()));
     for (int i = 0; i < parts.size(); i++) {

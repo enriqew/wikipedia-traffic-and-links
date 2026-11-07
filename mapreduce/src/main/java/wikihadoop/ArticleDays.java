@@ -158,7 +158,7 @@ public final class ArticleDays extends Configured implements Tool {
     MultipleOutputs.addNamedOutput(job, "spikes", TextOutputFormat.class, Text.class, NullWritable.class);
     MultipleOutputs.addNamedOutput(job, "articles", TextOutputFormat.class, Text.class, NullWritable.class);
     CacheFiles.add(job, SpikeCandidates.DOMAIN_HOUR, domainHour);
-    CacheFiles.add(job, CANDIDATES, candidates);
+    CacheFiles.addNamed(job, CANDIDATES, candidates, "candidates-r-");
     for (String input : inputs) {
       FileInputFormat.addInputPath(job, new Path(input));
     }
