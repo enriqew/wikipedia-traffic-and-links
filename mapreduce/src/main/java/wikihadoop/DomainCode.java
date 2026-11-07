@@ -7,8 +7,9 @@ import java.util.Map;
  *
  * <p>Domain codes are {@code <lang>[.m][.<project suffix>]}. Found in phase 0 (docs/PHASE0.md):
  * mobile-app views are counted under the mobile code with mobile-web, the {@code X.wikimedia}
- * projects take {@code X.m} and {@code X.m.m}, and Wikifunctions sits under the empty code
- * {@code ""}. With this mapping the user totals of pageview_complete equal the hourly dumps for
+ * projects take {@code X.m} and {@code X.m.m} (the {@code wikimedia} wiki with no language,
+ * {@code www.m} and {@code m.m}, found on the October run), and Wikifunctions sits under the empty
+ * code {@code ""}. With this mapping the user totals of pageview_complete equal the hourly dumps for
  * every domain and hour of the day checked.
  */
 public final class DomainCode {
@@ -22,6 +23,7 @@ public final class DomainCode {
       "wikidata", new String[] {"www.wd", "m.wd"},
       "mediawiki", new String[] {"www.w", "m.w"},
       "wikisource", new String[] {"www.s", "m.s"},
+      "wikimedia", new String[] {"www.m", "m.m"},
       "wikifunctions", new String[] {"\"\"", "\"\""});
 
   private DomainCode() {}

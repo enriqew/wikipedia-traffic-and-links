@@ -34,7 +34,7 @@ SUFFIX = {"wikipedia": "", "wikibooks": "b", "wiktionary": "d", "wikinews": "n",
 # Projects without a language prefix: (desktop, mobile).
 # Wikifunctions has no code of its own in the hourly files: its views sit under the empty domain "".
 GLOBAL = {"wikidata": ("www.wd", "m.wd"), "mediawiki": ("www.w", "m.w"), "wikisource": ("www.s", "m.s"),
-          "wikifunctions": ('""', '""')}
+          "wikimedia": ("www.m", "m.m"), "wikifunctions": ('""', '""')}
 
 
 def domain_code(wiki: str, access: str) -> str | None:

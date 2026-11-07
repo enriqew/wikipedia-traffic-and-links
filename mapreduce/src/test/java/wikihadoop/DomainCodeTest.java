@@ -38,6 +38,8 @@ class DomainCodeTest {
     assertEquals("m.wd", DomainCode.of("wikidata", "mobile-web"));
     assertEquals("www.w", DomainCode.of("mediawiki", "desktop"));
     assertEquals("m.s", DomainCode.of("wikisource", "mobile-app"));
+    assertEquals("www.m", DomainCode.of("wikimedia", "desktop"));
+    assertEquals("m.m", DomainCode.of("wikimedia", "mobile-web"));
     assertEquals("\"\"", DomainCode.of("wikifunctions", "desktop"));
     assertEquals("\"\"", DomainCode.of("wikifunctions", "mobile-web"));
   }
