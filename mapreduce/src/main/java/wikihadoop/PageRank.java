@@ -1,11 +1,15 @@
 package wikihadoop;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.FileSystem;
@@ -34,6 +38,14 @@ import org.apache.hadoop.util.ToolRunner;
  * <p>The work directory keeps the last two iterations, {@code ranks/} ({@code page_id rank}) and
  * {@code iterations.json}: per iteration the time, the change, the pool, the share, the carry and
  * the bytes read, written and shuffled.
+ *
+ * <p>A run that stopped can go on from an iteration whose output survived. {@code
+ * wh.pagerank.resume} names a file in the format of iterations.json holding iterations 1 to k;
+ * the driver keeps the work directory, removes anything past {@code iter-k}, and runs iteration
+ * k + 1 from {@code iter-k} with iteration k's share and carry. Everything an iteration needs is in
+ * the records of the one before and in those two numbers, all integers, so the ranks are the ones
+ * an unbroken run gives, unit for unit. The iterations.json it writes carries the earlier lines as
+ * they were and says where the run was resumed.
  *
  * <pre>hadoop jar wiki-hadoop.jar wikihadoop.PageRank &lt;Adjacency output glob&gt; &lt;work dir&gt;</pre>
  */
@@ -73,7 +85,55 @@ public final class PageRank extends Configured implements Tool {
     long edges;
     long mass;
     long carry;
+    /** The iteration a resumed run went on from; 0 for a run from the start. */
+    int resumedAfter;
+    /** Iterations 1 to resumedAfter, as their lines in the file the run was resumed from. */
+    final List<String> earlier = new ArrayList<>();
     final List<Iteration> iterations = new ArrayList<>();
+
+    int count() {
+      return earlier.size() + iterations.size();
+    }
+  }
+
+  private static final Pattern HEADER = Pattern.compile(
+      "\\{\"articles\": (\\d+), \"edges\": (\\d+), \"mass\": (\\d+), \"units_per_article\": (\\d+),");
+  private static final Pattern LINE = Pattern.compile(
+      "\\{\"iteration\": (\\d+), .*\"share\": (\\d+), \"carry\": (\\d+), .*\\}");
+
+  /** Reads an iterations.json into a Result to go on from, with the last iteration's share and carry. */
+  static long[] readResume(FileSystem fs, String file, Result result) throws IOException {
+    List<String> lines = new ArrayList<>();
+    try (BufferedReader in = new BufferedReader(
+        new InputStreamReader(fs.open(new Path(file)), StandardCharsets.UTF_8))) {
+      for (String line; (line = in.readLine()) != null; ) {
+        lines.add(line.trim());
+      }
+    }
+    Matcher h = HEADER.matcher(lines.isEmpty() ? "" : lines.get(0));
+    require(h.lookingAt(), file + ": no header");
+    require(Long.parseLong(h.group(4)) == PageRankMass.UNITS, file + ": another unit per article");
+    result.nodes = Long.parseLong(h.group(1));
+    result.edges = Long.parseLong(h.group(2));
+    result.mass = Long.parseLong(h.group(3));
+    require(result.mass == Math.multiplyExact(result.nodes, PageRankMass.UNITS), file + ": mass is not N x units");
+    long share = 0;
+    long carry = 0;
+    for (String line : lines.subList(1, lines.size())) {
+      if (!line.startsWith("{\"iteration\"")) {
+        continue;
+      }
+      String object = line.endsWith(",") ? line.substring(0, line.length() - 1) : line;
+      Matcher m = LINE.matcher(object);
+      require(m.matches(), file + ": cannot read " + object);
+      require(Integer.parseInt(m.group(1)) == result.earlier.size() + 1, file + ": iterations not numbered 1, 2, ...");
+      share = Long.parseLong(m.group(2));
+      carry = Long.parseLong(m.group(3));
+      result.earlier.add(object);
+    }
+    require(!result.earlier.isEmpty(), file + ": no iterations");
+    result.resumedAfter = result.earlier.size();
+    return new long[] {share, carry};
   }
 
   private static long bytes(Counters c, String suffix) {
@@ -107,23 +167,36 @@ public final class PageRank extends Configured implements Tool {
   static Result run(Configuration conf, String adjacency, String work) throws Exception {
     double tolerance = conf.getDouble("wh.pagerank.tolerance", 1e-7);
     int max = conf.getInt("wh.pagerank.max", 100);
+    String resume = conf.get("wh.pagerank.resume");
     FileSystem fs = FileSystem.get(conf);
     Path dir = new Path(work);
-    fs.delete(dir, true);
     Result result = new Result();
-
-    Counters init = complete(PageRankJobs.init(conf, adjacency, work + "/iter-000"));
-    require(get(init, PageRankJobs.Counts.BAD_LINES) == 0, "adjacency lines whose out-degree is not their link count");
-    result.nodes = get(init, PageRankJobs.Counts.NODES);
-    result.edges = get(init, PageRankJobs.Counts.EDGES);
-    long n = result.nodes;
-    long mass = Math.multiplyExact(n, PageRankMass.UNITS);
-    result.mass = mass;
-
     long share = 0;
     long carry = 0;
-    int last = 0;
-    for (int j = 1; j <= max; j++) {
+    if (resume == null) {
+      fs.delete(dir, true);
+      Counters init = complete(PageRankJobs.init(conf, adjacency, work + "/iter-000"));
+      require(get(init, PageRankJobs.Counts.BAD_LINES) == 0, "adjacency lines whose out-degree is not their link count");
+      result.nodes = get(init, PageRankJobs.Counts.NODES);
+      result.edges = get(init, PageRankJobs.Counts.EDGES);
+      result.mass = Math.multiplyExact(result.nodes, PageRankMass.UNITS);
+    } else {
+      long[] last = readResume(fs, resume, result);
+      share = last[0];
+      carry = last[1];
+      int k = result.resumedAfter;
+      require(fs.exists(new Path(iter(work, k), "_SUCCESS")), iter(work, k) + " is not a finished iteration");
+      for (int j = k + 1; fs.exists(new Path(iter(work, j))); j++) {
+        fs.delete(new Path(iter(work, j)), true);
+      }
+      fs.delete(new Path(work, "ranks"), true);
+      System.err.println("pagerank: resuming after iteration " + k + " with share " + share + " and carry " + carry);
+    }
+    long n = result.nodes;
+    long mass = result.mass;
+
+    int last = result.resumedAfter;
+    for (int j = result.resumedAfter + 1; j <= max; j++) {
       long started = System.nanoTime();
       Counters c = complete(PageRankJobs.iteration(conf, iter(work, j - 1), iter(work, j), share, j));
       Iteration it = new Iteration();
@@ -175,10 +248,14 @@ public final class PageRank extends Configured implements Tool {
   private static void writeLog(FileSystem fs, String work, Result result) throws IOException {
     StringBuilder s = new StringBuilder();
     s.append(String.format(Locale.ROOT, "{\"articles\": %d, \"edges\": %d, \"mass\": %d, \"units_per_article\": %d, "
-        + "\"damping\": 0.85, \"iterations\": [\n", result.nodes, result.edges, result.mass, PageRankMass.UNITS));
-    for (int i = 0; i < result.iterations.size(); i++) {
-      s.append("  ").append(result.iterations.get(i).json(result.mass))
-          .append(i + 1 < result.iterations.size() ? ",\n" : "\n");
+        + "\"damping\": 0.85, %s\"iterations\": [\n", result.nodes, result.edges, result.mass, PageRankMass.UNITS,
+        result.resumedAfter > 0 ? "\"resumed_after\": " + result.resumedAfter + ", " : ""));
+    List<String> lines = new ArrayList<>(result.earlier);
+    for (Iteration it : result.iterations) {
+      lines.add(it.json(result.mass));
+    }
+    for (int i = 0; i < lines.size(); i++) {
+      s.append("  ").append(lines.get(i)).append(i + 1 < lines.size() ? ",\n" : "\n");
     }
     s.append("]}\n");
     try (OutputStream out = fs.create(new Path(work, "iterations.json"), true)) {
@@ -193,8 +270,9 @@ public final class PageRank extends Configured implements Tool {
       return 2;
     }
     Result r = run(getConf(), args[0], args[1]);
-    System.err.println("pagerank: " + r.nodes + " articles, " + r.edges + " edges, " + r.iterations.size()
-        + " iterations, mass " + r.mass + " kept to the unit");
+    System.err.println("pagerank: " + r.nodes + " articles, " + r.edges + " edges, " + r.count()
+        + " iterations" + (r.resumedAfter > 0 ? " (resumed after " + r.resumedAfter + ")" : "")
+        + ", mass " + r.mass + " kept to the unit");
     return 0;
   }
 

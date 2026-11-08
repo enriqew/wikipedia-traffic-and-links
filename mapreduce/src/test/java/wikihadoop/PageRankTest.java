@@ -145,4 +145,98 @@ class PageRankTest {
     assertEquals(List.of(String.format("iter-%03d", last - 1), String.format("iter-%03d", last),
         "iterations.json", "ranks"), left.stream().filter(s -> !s.startsWith(".")).collect(java.util.stream.Collectors.toList()));
   }
+
+  private String writeGraph() throws Exception {
+    Path adjacency = dir.resolve("graph");
+    Files.createDirectories(adjacency);
+    StringBuilder text = new StringBuilder();
+    for (long[] row : GRAPH) {
+      StringBuilder csv = new StringBuilder();
+      for (int i = 1; i < row.length; i++) {
+        csv.append(i == 1 ? "" : ",").append(row[i]);
+      }
+      text.append(row[0]).append('\t').append(row.length - 1).append('\t').append(csv).append('\n');
+    }
+    Files.write(adjacency.resolve("adjacency-r-00000"), text.toString().getBytes(StandardCharsets.UTF_8));
+    return adjacency.resolve("adjacency-r-*").toString();
+  }
+
+  private static Map<Long, Long> readRanks(Path work) throws Exception {
+    Map<Long, Long> ranks = new TreeMap<>();
+    for (Path p : (Iterable<Path>) Files.list(work.resolve("ranks"))::iterator) {
+      if (p.getFileName().toString().startsWith("part-")) {
+        for (String line : Files.readAllLines(p)) {
+          String[] f = line.split("\t");
+          ranks.put(Long.parseLong(f[0]), Long.parseLong(f[1]));
+        }
+      }
+    }
+    return ranks;
+  }
+
+  /** Each iteration's line in an iterations.json without the time and the byte counts, which differ between runs. */
+  private static List<String> arithmetic(Path log) throws Exception {
+    List<String> out = new java.util.ArrayList<>();
+    for (String line : Files.readAllLines(log)) {
+      if (line.trim().startsWith("{\"iteration\"")) {
+        out.add(line.replaceAll("\"seconds\": [0-9.]+, ", "").replaceAll(", \"bytes_read\".*", ""));
+      }
+    }
+    return out;
+  }
+
+  @Test
+  void aRunResumedFromAnIterationThatSurvivedEndsWhereAnUnbrokenRunDoes() throws Exception {
+    String adjacency = writeGraph();
+    Configuration conf = Jobs.localConf();
+    conf.setDouble("wh.pagerank.tolerance", 1e-9);
+    conf.setInt("wh.pagerank.max", 200);
+    conf.setInt("wh.graph.reducers", 2);
+    Path unbroken = dir.resolve("unbroken");
+    PageRank.Result whole = PageRank.run(conf, adjacency, unbroken.toString());
+
+    // The broken run stops after iteration 12; iteration 12 is then lost, as when a disk fills while
+    // it is written, and the log is cut back to the 11 iterations whose output survived.
+    Path broken = dir.resolve("broken");
+    Configuration first = new Configuration(conf);
+    first.setInt("wh.pagerank.max", 12);
+    PageRank.run(first, adjacency, broken.toString());
+    Files.delete(broken.resolve("iter-012").resolve("part-r-00001"));
+    List<String> log = Files.readAllLines(broken.resolve("iterations.json"));
+    List<String> kept = new java.util.ArrayList<>(log.subList(0, 12));
+    kept.set(11, kept.get(11).replaceAll(",$", ""));
+    kept.add("]}");
+    Path resume = dir.resolve("resume.json");
+    Files.write(resume, kept);
+
+    Configuration again = new Configuration(conf);
+    again.set("wh.pagerank.resume", resume.toString());
+    PageRank.Result resumed = PageRank.run(again, adjacency, broken.toString());
+
+    assertEquals(11, resumed.resumedAfter);
+    assertEquals(whole.count(), resumed.count());
+    assertEquals(whole.carry, resumed.carry);
+    assertEquals(readRanks(unbroken), readRanks(broken));
+    assertEquals(arithmetic(unbroken.resolve("iterations.json")), arithmetic(broken.resolve("iterations.json")));
+    assertTrue(Files.readAllLines(broken.resolve("iterations.json")).get(0).contains("\"resumed_after\": 11, "));
+  }
+
+  @Test
+  void aResumeRefusesAnIterationThatDidNotFinish() throws Exception {
+    String adjacency = writeGraph();
+    Configuration conf = Jobs.localConf();
+    conf.setInt("wh.pagerank.max", 3);
+    conf.setInt("wh.graph.reducers", 2);
+    Path work = dir.resolve("work");
+    PageRank.run(conf, adjacency, work.toString());
+    Files.delete(work.resolve("iter-003").resolve("_SUCCESS"));
+    Path resume = dir.resolve("resume.json");
+    Files.copy(work.resolve("iterations.json"), resume);
+
+    Configuration again = new Configuration(conf);
+    again.set("wh.pagerank.resume", resume.toString());
+    java.io.IOException e = org.junit.jupiter.api.Assertions.assertThrows(java.io.IOException.class,
+        () -> PageRank.run(again, adjacency, work.toString()));
+    assertTrue(e.getMessage().contains("iter-003 is not a finished iteration"), e.getMessage());
+  }
 }
