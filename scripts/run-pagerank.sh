@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # PageRank on the cluster over a link graph built by run-graph.sh, then copy the ranks out.
 #
-#   WH_DATA_DIR=... scripts/run-pagerank.sh <wiki> <dump date YYYYMMDD> [reducers, default 3]
+#   WH_DATA_DIR=... scripts/run-pagerank.sh <wiki> <dump date YYYYMMDD> [reducers, default 3] [resume file]
+#
+# A resume file (an iterations.json cut back to the iterations whose output survived, in HDFS) goes
+# on from the last of them instead of starting over; see wikihadoop.PageRank.
 #
 # Reads /out/graph/<wiki>-<date>/graph/adjacency-r-*, works in /out/pagerank/<wiki>-<date>/ (the
 # last two iterations, ranks/, iterations.json; see wikihadoop.PageRank). The log goes to
@@ -11,7 +14,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export MSYS_NO_PATHCONV=1
-wiki=$1 date=$2 reducers=${3:-3}
+wiki=$1 date=$2 reducers=${3:-3} resume=${4:-}
 data=${WH_DATA_DIR:?set WH_DATA_DIR to the data directory}
 name="$wiki-$date"
 local_out="$data/pagerank/$name"
