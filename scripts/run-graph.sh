@@ -12,6 +12,8 @@
 # The first job that fails, or whose checks fail, stops the run. The log, counters included, goes
 # to $WH_DATA_DIR/graphs/<wiki>-<date>/jobs.log; the outputs to graph.<output>.tsv and
 # link-targets.hops.tsv beside it. Like run-window.sh, the run copies the jar when it starts.
+# Map output and job output are compressed (zlib, native on the cluster): English Wikipedia's Edges
+# shuffles about a billion records, and its output would take some 60 GB at replication 3.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export MSYS_NO_PATHCONV=1
@@ -26,7 +28,8 @@ docker compose run --rm -T client bash -s > "$local_out/jobs.log" 2>&1 <<EOF || 
 set -e
 i=/raw/dumps/$wiki/$date
 o=/out/graph/$name
-r="-D wh.graph.reducers=$reducers"
+z=org.apache.hadoop.io.compress.DefaultCodec
+r="-D wh.graph.reducers=$reducers -D mapreduce.map.output.compress=true -D mapreduce.map.output.compress.codec=\$z -D mapreduce.output.fileoutputformat.compress=true -D mapreduce.output.fileoutputformat.compress.codec=\$z"
 cp /jobs/wiki-hadoop.jar /tmp/run.jar
 jar=/tmp/run.jar
 echo "commit $commit"
@@ -45,7 +48,8 @@ if ! grep -q "^=== done" "$local_out/jobs.log"; then
 fi
 
 fetch() {  # $1 = job output directory, $2 = file prefix
-  docker compose run --rm -T client hdfs dfs -cat "/out/graph/$name/$1/$2-r-*" > "$local_out/$1.$2.tsv" 2>/dev/null
+  docker compose run --rm -T client python3 /scripts/hdfs_text.py "/out/graph/$name/$1/$2-r-*" \
+    > "$local_out/$1.$2.tsv" 2>/dev/null
 }
 fetch graph adjacency
 fetch graph titles
