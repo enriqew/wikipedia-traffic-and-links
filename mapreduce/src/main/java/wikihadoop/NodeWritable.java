@@ -77,6 +77,19 @@ public final class NodeWritable implements Writable {
     return this;
   }
 
+  /** Copies {@code other} into this one: Hadoop reuses the value object a reducer iterates with. */
+  public NodeWritable set(NodeWritable other) {
+    record = other.record;
+    rank = other.rank;
+    previous = other.previous;
+    if (targets.length < other.size) {
+      targets = new long[other.size];
+    }
+    System.arraycopy(other.targets, 0, targets, 0, other.size);
+    size = other.size;
+    return this;
+  }
+
   public long[] copyOfTargets() {
     return Arrays.copyOf(targets, size);
   }
