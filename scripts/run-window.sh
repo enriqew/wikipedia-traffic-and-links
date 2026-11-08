@@ -11,6 +11,8 @@
 #   top-spikes                                TopSpikes
 # The first job that fails stops the run. The job logs, counters included, go to
 # $WH_DATA_DIR/runs/<run>/jobs.log, and each output to $WH_DATA_DIR/runs/<run>/<job>.<output>.tsv.
+# The run copies the jar when it starts and uses the copy, so a rebuild meanwhile does not reach
+# its later jobs; the log opens with the commit and the copy's sha256.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export MSYS_NO_PATHCONV=1
@@ -31,12 +33,16 @@ for d in $dates; do
   user="$user /raw/pageviews/agent=user/date=$d"
   automated="$automated /raw/pageviews/agent=automated/date=$d"
 done
+commit="$(git rev-parse HEAD)$(git diff --quiet HEAD -- mapreduce || echo ' (mapreduce has uncommitted changes)')"
 
 docker compose run --rm -T client bash -s > "$local_out/jobs.log" 2>&1 <<EOF || true
 set -e
 o=/out/$run
 w="-D wh.window.start=$start -D wh.window.days=$days"
-jar=/jobs/wiki-hadoop.jar
+cp /jobs/wiki-hadoop.jar /tmp/run.jar
+jar=/tmp/run.jar
+echo "commit $commit"
+echo "jar sha256 \$(sha256sum \$jar | cut -d' ' -f1)"
 hdfs dfs -rm -r -f -skipTrash \$o >/dev/null 2>&1 || true
 echo "=== domain-hour-user";      hadoop jar \$jar wikihadoop.DomainHourTotals $user \$o/domain-hour-user
 echo "=== domain-hour-automated"; hadoop jar \$jar wikihadoop.DomainHourTotals $automated \$o/domain-hour-automated
