@@ -67,6 +67,22 @@ CREATE EXTERNAL TABLE spike_hours (
   ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' STORED AS TEXTFILE
   LOCATION '/out/${hivevar:run}/spike-hours' TBLPROPERTIES ('external.table.purge'='false');
 
+-- wikis.tsv as the window's jobs had it in their jar (scripts/run-hive.sh puts it in HDFS): each
+-- ranked wiki, its main page, and its namespace names and aliases.
+CREATE EXTERNAL TABLE wikis (wiki STRING, main_page STRING, prefixes STRING)
+  ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' STORED AS TEXTFILE
+  LOCATION '/raw/wikis' TBLPROPERTIES ('external.table.purge'='false');
+
+-- SpikeHours with whether the title ranks, by Wikis' rule (TopSpikes keeps only those): a ranked
+-- wiki's title that is not its main page, not -, and not prefixed before its first colon by one of
+-- its namespace names, compared in lower case.
+CREATE VIEW spike_hours_ranked AS
+SELECT s.*, (w.wiki IS NOT NULL AND s.title != w.main_page AND s.title != '-'
+             AND NOT (instr(s.title, ':') > 1
+                      AND array_contains(split(w.prefixes, '\\|'), lower(substr(s.title, 1, instr(s.title, ':') - 1)))))
+            AS ranked
+FROM spike_hours s LEFT JOIN wikis w ON s.wiki = w.wiki;
+
 -- TopSpikes: a rank, then the spike's SpikeHours line.
 CREATE EXTERNAL TABLE top_spikes (
   `rank` INT, wiki STRING, title STRING, day STRING, user_views BIGINT, baseline DOUBLE, excess DOUBLE,
