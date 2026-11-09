@@ -47,6 +47,10 @@ import org.apache.hadoop.util.ToolRunner;
  * an unbroken run gives, unit for unit. The iterations.json it writes carries the earlier lines as
  * they were and says where the run was resumed.
  *
+ * <p>Without a resume file the run starts over, and it refuses a work directory that already
+ * exists unless {@code wh.pagerank.overwrite} is true: a resume flag lost on its way to the driver
+ * then stops the run instead of deleting the iterations it was meant to go on from.
+ *
  * <pre>hadoop jar wiki-hadoop.jar wikihadoop.PageRank &lt;Adjacency output glob&gt; &lt;work dir&gt;</pre>
  */
 public final class PageRank extends Configured implements Tool {
@@ -174,7 +178,11 @@ public final class PageRank extends Configured implements Tool {
     long share = 0;
     long carry = 0;
     if (resume == null) {
-      fs.delete(dir, true);
+      if (fs.exists(dir)) {
+        require(conf.getBoolean("wh.pagerank.overwrite", false), work + " already holds a run: set "
+            + "wh.pagerank.resume to go on from it, or wh.pagerank.overwrite=true to start over");
+        fs.delete(dir, true);
+      }
       Counters init = complete(PageRankJobs.init(conf, adjacency, work + "/iter-000"));
       require(get(init, PageRankJobs.Counts.BAD_LINES) == 0, "adjacency lines whose out-degree is not their link count");
       result.nodes = get(init, PageRankJobs.Counts.NODES);

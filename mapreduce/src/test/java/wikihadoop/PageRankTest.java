@@ -239,4 +239,26 @@ class PageRankTest {
         () -> PageRank.run(again, adjacency, work.toString()));
     assertTrue(e.getMessage().contains("iter-003 is not a finished iteration"), e.getMessage());
   }
+
+  @Test
+  void aRunWithoutAResumeFileRefusesAWorkDirectoryThatHoldsARunUnlessToldToOverwrite() throws Exception {
+    String adjacency = writeGraph();
+    Configuration conf = Jobs.localConf();
+    conf.setInt("wh.pagerank.max", 3);
+    conf.setInt("wh.graph.reducers", 2);
+    Path work = dir.resolve("work");
+    PageRank.run(conf, adjacency, work.toString());
+    Map<Long, Long> before = readRanks(work);
+
+    java.io.IOException e = org.junit.jupiter.api.Assertions.assertThrows(java.io.IOException.class,
+        () -> PageRank.run(conf, adjacency, work.toString()));
+    assertTrue(e.getMessage().contains("already holds a run"), e.getMessage());
+    assertTrue(Files.exists(work.resolve("iter-003").resolve("_SUCCESS")));
+    assertEquals(before, readRanks(work));
+
+    Configuration overwrite = new Configuration(conf);
+    overwrite.setBoolean("wh.pagerank.overwrite", true);
+    assertEquals(3, PageRank.run(overwrite, adjacency, work.toString()).count());
+    assertEquals(before, readRanks(work));
+  }
 }
