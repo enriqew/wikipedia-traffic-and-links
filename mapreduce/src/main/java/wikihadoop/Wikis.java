@@ -64,6 +64,13 @@ public final class Wikis {
     return wikis.keySet();
   }
 
+  /** Whether the title starts with the name of one of this wiki's non-article namespaces. */
+  public boolean otherNamespace(String wiki, String title) {
+    Wiki w = wikis.get(wiki);
+    int colon = title.indexOf(':');
+    return w != null && colon > 0 && w.prefixes.contains(title.substring(0, colon).toLowerCase(Locale.ROOT));
+  }
+
   /** Whether the title takes part in this wiki's spike rankings. */
   public boolean ranked(String wiki, String title) {
     Wiki w = wikis.get(wiki);
