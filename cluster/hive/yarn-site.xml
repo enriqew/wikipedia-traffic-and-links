@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<!-- HiveServer2's Hadoop client: the cluster's ResourceManager, where the Tez sessions run. -->
+<configuration>
+  <property><name>yarn.resourcemanager.hostname</name><value>resourcemanager</value></property>
+</configuration>

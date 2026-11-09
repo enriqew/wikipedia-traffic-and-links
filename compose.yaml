@@ -73,6 +73,22 @@ services:
       - ./scripts:/scripts:ro
       - ${WH_DATA_DIR:-./data}:/input:ro
 
+  # HiveServer2 over the job outputs, on Tez on the cluster's YARN (plan section 16). Started by
+  # scripts/run-hive.sh, which also loads the table definitions; not part of a plain `up`.
+  hive:
+    image: apache/hive:4.0.1
+    profiles: [hive]
+    hostname: hive
+    environment:
+      SERVICE_NAME: hiveserver2
+      HADOOP_USER_NAME: hadoop
+    volumes:
+      - ./cluster/hive/hive-site.xml:/opt/hive/conf/hive-site.xml:ro
+      - ./cluster/hive/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./cluster/hive/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
+      - ./hive:/hive:ro
+    ports: ["10002:10002"]
+
 volumes:
   namenode:
   worker1:
