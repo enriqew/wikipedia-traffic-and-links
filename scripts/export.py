@@ -126,7 +126,8 @@ class Checks:
     def run(self, script: str, *args: str) -> None:
         cmd = [sys.executable, str(REPO / "scripts" / script), *args]
         print(f"--- {script} {' '.join(args)}", flush=True)
-        p = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, encoding="utf-8")
+        env = {**os.environ, "PYTHONUTF8": "1"}  # a pipe would otherwise take the console's code page
+        p = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, encoding="utf-8", env=env)
         sys.stdout.write(p.stdout)
         for line in p.stdout.splitlines():
             m = re.match(r"^(ok  |FAIL|skip|info)  (.*)$", line)
@@ -159,6 +160,7 @@ def main() -> int:
     ap.add_argument("dump")
     ap.add_argument("--out", default=str(REPO / "export"))
     a = ap.parse_args()
+    sys.stdout.reconfigure(encoding="utf-8")
     data = Path(os.environ["WH_DATA_DIR"])
     start = date.fromisoformat(a.start)
     days = [(start + timedelta(days=i)).isoformat() for i in range(a.days)]
