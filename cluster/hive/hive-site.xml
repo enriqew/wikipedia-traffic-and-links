@@ -14,6 +14,12 @@
        the server. -->
   <property><name>hive.exec.mode.local.auto</name><value>false</value></property>
   <property><name>hive.fetch.task.conversion</name><value>none</value></property>
+  <!-- A query that fails stops the run; Hive would otherwise run it again on its own. -->
+  <property><name>hive.query.reexecution.enabled</name><value>false</value></property>
+  <!-- Off: with it on, Hive 4.0.1 sends the result of an INSERT OVERWRITE DIRECTORY that reads a
+       view to its results cache under /tmp/hive/_resultscache_/ instead of the directory named,
+       and reports success. Every query here reads the job outputs afresh. -->
+  <property><name>hive.query.results.cache.enabled</name><value>false</value></property>
   <!-- Hive 4.0 still loads commons-collections 3, which Hadoop 3.4 no longer ships. -->
   <property><name>hive.aux.jars.path</name><value>file:///opt/hive/lib/commons-collections-3.2.2.jar</value></property>
 
