@@ -18,6 +18,9 @@ reconciliation between Wikimedia's three public pageview datasets, in `docs/PHAS
 | `scripts/download.py`, `scripts/ingest.py` | A month's download, and its copy into HDFS verified by sha256 |
 | `scripts/reconcile_month.py` | The job's user totals against Wikimedia's hourly projectviews, which must be equal |
 | `scripts/mvn.sh` | Maven in a container, so no local JDK is needed |
+| `cluster/hive/`, `hive/` | HiveServer2 4.0.1 on Tez over the cluster: external tables over the job outputs, and the queries behind the export |
+| `scripts/run-hive.sh` | Rebuilds the tables and runs the queries on the cluster, then copies the results out |
+| `scripts/export.py`, `docs/EXPORT.md` | The page's data, written only once every check of the runs behind it holds |
 | `scripts/audit_publishable.py` | Fails CI if a tracked file or commit message carries an address, a local path or a credential |
 
 ## Running it
