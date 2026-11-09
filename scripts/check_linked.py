@@ -33,6 +33,7 @@ GROUP = re.compile(r"^\t([^\t=]+)$")
 COUNTER = re.compile(r"^\t\t(.+?)=(\d+)$")
 TOP = 1000
 OUTLIERS = 50
+LIST = 100  # the top lists the summary keeps
 
 
 def counters(log: Path) -> dict[str, dict[tuple[str, str], int]]:
@@ -163,8 +164,8 @@ def main() -> int:
         "wiki": code, "dump": dump_date, "views_run": run, "articles": n,
         "articles_viewed": int(np.count_nonzero(vw)), "user_views": total_views,
         "spearman": spearman, "overlap": overlap,
-        "top_by_pagerank": [row(i) for i in by_rank[:20]],
-        "top_by_views": [row(i) for i in by_views[:20]],
+        "top_by_pagerank": [row(i) for i in by_rank[:LIST]],
+        "top_by_views": [row(i) for i in by_views[:LIST]],
         "read_beyond_links": [row(i) for i in read_beyond],
         "linked_beyond_reads": [row(i) for i in linked_beyond],
         "fates": fates, "linked_sha256": digest,
