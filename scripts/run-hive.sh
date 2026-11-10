@@ -30,7 +30,11 @@ wikis=$( (cut -f1 <<<"$wikis_tsv"; echo simple.wikipedia) | quote)
 domains=$( (cut -f1 <<<"$wikis_tsv"; echo simple.wikipedia) \
   | sed 's/\.wikipedia$//' | while read -r c; do echo "$c"; echo "$c.m"; done | quote)
 
-docker compose --profile hive up -d hive 2>/dev/null
+# A stopped container is recreated, not restarted: HiveServer2 leaves a pid file that stops it from
+# starting again in the same container, and the metastore holds nothing tables.sql does not rebuild.
+if [ -z "$(docker compose --profile hive ps -q --status running hive 2>/dev/null)" ]; then
+  docker compose --profile hive up -d --force-recreate hive 2>/dev/null
+fi
 hive() { docker compose exec -T hive "$@"; }
 beeline() {
   hive beeline -u jdbc:hive2://localhost:10000/ -n hadoop --hiveconf hive.server2.in.place.progress=false \
