@@ -66,7 +66,10 @@ INSERT OVERWRITE DIRECTORY '${hivevar:results}/top-spikes'
 SELECT * FROM top_spikes ORDER BY wiki, day, `rank`;
 
 -- Spikes per ranked wiki and day: all, flagged by LooksAutomated, marked as bursts; then the same
--- for the titles that rank (articles).
+-- for the titles that rank (articles). Not vectorized: the vectorized plan of the ranked rule
+-- (split and array_contains after an outer join) does not deserialize in the tasks (Kryo,
+-- "unregistered class ID").
+SET hive.vectorized.execution.enabled=false;
 INSERT OVERWRITE DIRECTORY '${hivevar:results}/spike-counts'
   ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t'
 SELECT wiki, day, COUNT(*), SUM(IF(flags != '-', 1, 0)), SUM(IF(burst = 'burst', 1, 0)),
@@ -79,6 +82,7 @@ INSERT OVERWRITE DIRECTORY '${hivevar:results}/flagged-spikes'
 SELECT wiki, title, day, user_views, baseline, excess, automated_views, desktop, mobile_web, mobile_app,
        flatness, dominant_access, dominant_share, wiki_share_of_it, flags, peak_share, burst, hourly
 FROM spike_hours_ranked WHERE ranked AND flags != '-' ORDER BY wiki, day, title;
+SET hive.vectorized.execution.enabled=true;
 
 -- The top 100 articles by PageRank and by user views, ties to the lower page id. Each window is
 -- filtered on its own position, so Hive keeps only a wiki's first 100 rows in the sort (top-n);
