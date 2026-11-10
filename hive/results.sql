@@ -20,11 +20,18 @@ INSERT OVERWRITE DIRECTORY '${hivevar:results}/wiki-day'
 SELECT wiki, agent, day, SUM(views)
 FROM wiki_hour GROUP BY wiki, agent, day ORDER BY wiki, agent, day;
 
--- SpikeCandidates' totals per wiki, agent and day, over the access methods.
+-- SpikeCandidates' totals per wiki, agent and day, over the access methods; and the desktop views of
+-- each wiki's Wikimedia chapter (pt.wikimedia.org beside pt.wikipedia.org), which the domain codes
+-- count under the wiki's mobile code (pt.m), so that DomainHourTotals over a wiki's two codes holds
+-- them too.
 INSERT OVERWRITE DIRECTORY '${hivevar:results}/access-totals-day'
   ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t'
 SELECT wiki, agent, day, SUM(views)
-FROM access_totals WHERE wiki IN (${hivevar:wikis}) GROUP BY wiki, agent, day ORDER BY wiki, agent, day;
+FROM access_totals
+WHERE wiki IN (${hivevar:wikis})
+   OR (wiki LIKE '%.wikimedia' AND access = 'desktop'
+       AND concat(regexp_replace(wiki, '\\.wikimedia$', ''), '.wikipedia') IN (${hivevar:wikis}))
+GROUP BY wiki, agent, day ORDER BY wiki, agent, day;
 
 -- LinkedVsRead against the graph's titles and PageRank's ranks, page by page: rows of the three
 -- joined, and how many have all three with the same title and the same rank.
