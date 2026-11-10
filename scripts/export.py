@@ -225,11 +225,27 @@ def main() -> int:
     c.check("hive month titles", sum(m["titles"] for m in month.values()) == titles,
             f"{fmt(titles)} titles, as the job counted")
 
+    # A wiki's own views per day (SpikeCandidates keys them by wiki), and its Wikimedia chapter's
+    # desktop views, which the domain codes count under the wiki's mobile code (pt.m holds
+    # pt.wikipedia's mobile views and pt.wikimedia.org's desktop views).
     access = {(r[0], r[1], r[2]): r[3] for r in hive("access-totals-day", "sssi")}
     wikis = sorted({w for w, _, _ in wiki_day})
-    c.check("hive pass-one totals", access == wiki_day and len(access) == len(wikis) * len(AGENTS) * len(days),
-            f"{len(access):,} days of {len(wikis)} wikis and two agents, each equal to DomainHourTotals over "
-            f"the wiki's two domain codes")
+    own = {k: v for k, v in access.items() if k[0] in wikis}
+
+    def chapter(w: str) -> str:
+        return w.removesuffix(".wikipedia") + ".wikimedia"
+
+    shared = {(w, ag, d): access.get((chapter(w), ag, d), 0) for w, ag, d in own}
+    c.check("hive pass-one totals",
+            len(own) == len(wikis) * len(AGENTS) * len(days)
+            and all(own[k] + shared[k] == wiki_day.get(k) for k in own),
+            f"{len(own):,} days of {len(wikis)} wikis and two agents: each wiki's views, with its Wikimedia "
+            f"chapter's desktop views where it has one, equal DomainHourTotals over its two domain codes")
+    chapters = sorted({chapter(w) for (w, _, _), v in shared.items() if v})
+    shared_month = {w: {ag: sum(v for (x, a2, _), v in shared.items() if x == w and a2 == ag) for ag in AGENTS}
+                    for w in wikis}
+    print(f"info  chapters sharing a mobile code: {chapters}; month's views "
+          f"{ {w: s for w, s in shared_month.items() if any(s.values())} }")
 
     join = {r[0]: r[1:] for r in hive("linked-join", "sii")}
     top_rows = hive("linked-top", "ssiisiiii")  # measure, wiki, position, page id, title, rank, views...
@@ -358,8 +374,8 @@ def main() -> int:
         "rule": {"spike": rules["spike"], "definition": SPIKE_RULE},
         "days": days,
         "wikis": [{"wiki": w, "main_page": main_pages[w],
-                   "user": [wiki_day[(w, "user", d)] for d in days],
-                   "automated": [wiki_day[(w, "automated", d)] for d in days],
+                   "user": [own[(w, "user", d)] for d in days],
+                   "automated": [own[(w, "automated", d)] for d in days],
                    "spikes": [counts.get((w, d), [0] * 6)[3] for d in days],
                    "flagged": [counts.get((w, d), [0] * 6)[4] for d in days],
                    "bursts": [counts.get((w, d), [0] * 6)[5] for d in days],
@@ -371,7 +387,12 @@ def main() -> int:
         "rule": {"looks_automated": {**rules["looks_automated"], "wiki_share_below": 0.5, "definition": AUTOMATED_RULE},
                  "burst": {**rules["burst"], "definition": BURST_RULE}},
         "hours": {"first": f"{days[0]}T00:00Z", "count": hours},
-        "wikis": [{"wiki": w, "user": hourly[(w, "user")], "automated": hourly[(w, "automated")]} for w in ranked],
+        "wikis": [{"wiki": w, "user": hourly[(w, "user")], "automated": hourly[(w, "automated")],
+                   "codes": [w.removesuffix(".wikipedia"), w.removesuffix(".wikipedia") + ".m"],
+                   "shared": ({"with": chapter(w), "views": shared_month[w],
+                               "note": f"The mobile code also counts {chapter(w)}'s desktop views; these are "
+                                       "the window's, from SpikeCandidates' totals."}
+                              if any(shared_month[w].values()) else None)} for w in ranked],
         "flagged": [{"wiki": r[0], "day": r[2], **spike(r)} for r in flagged],
     }
     c.check("flagged spikes", len(flagged) == total[4],
